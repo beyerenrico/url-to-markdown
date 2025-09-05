@@ -148,6 +148,154 @@ def test_parse_sitemap_empty_file_returns_empty_list(tmp_path: Path):
     assert urls == []
 
 
+def test_process_no_sitemap_prompts_and_crawls(tmp_path: Path, monkeypatch):
+    # Fake SitemapFinder that returns None (no sitemap found)
+    class FakeFinder:
+        def __init__(self, base_url: str, timeout: int = 10):
+            self.base_url = base_url
+        def find_sitemap_url(self):
+            return None
+        # Should not be called, but keep for interface compatibility
+        def download_sitemap(self, sitemap_url: str) -> str:
+            raise AssertionError("download_sitemap should not be called when no sitemap is found")
+
+    class FakeCrawler:
+        def __init__(self, base_url: str, max_depth: int = 3, max_pages: int = 500, timeout: int = 10):
+            self.base_url = base_url
+        def crawl(self):
+            return ["https://example.com/", "https://example.com/docs/"]
+        def generate_sitemap(self, urls):
+            xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" \
+                  + "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n" \
+                  + "\n".join([f"  <url><loc>{u}</loc></url>" for u in urls]) \
+                  + "\n</urlset>"
+            p = tmp_path / "gen.xml"
+            p.write_text(xml, encoding="utf-8")
+            return str(p)
+
+    # Choose to crawl (option 1)
+    monkeypatch.setattr("builtins.input", lambda prompt='': '1')
+    monkeypatch.setattr(utm, "SitemapFinder", FakeFinder)
+    monkeypatch.setattr(utm, "WebCrawler", FakeCrawler)
+    # Avoid network during extraction
+    monkeypatch.setattr(utm.WebsiteContentExtractor, "extract_content", lambda self, url: {
+        "url": url, "title": "t", "content": "c", "error": None
+    })
+
+    extractor = utm.WebsiteContentExtractor()
+    successful, failed = extractor.process_website(
+        "https://example.com",
+        separate_files=True,
+        output_path=str(tmp_path),
+    )
+
+    # Pages should be saved under pages/ based on crawled URLs
+    assert (tmp_path / "pages" / "index.md").exists()
+    assert (tmp_path / "pages" / "docs.md").exists()
+    # And sitemap should be saved
+    assert (tmp_path / "sitemap.xml").exists()
+    assert successful >= 0
+    assert failed >= 0
+
+
+def test_process_no_sitemap_cancel_raises(tmp_path: Path, monkeypatch):
+    class FakeFinder:
+        def __init__(self, base_url: str, timeout: int = 10):
+            self.base_url = base_url
+        def find_sitemap_url(self):
+            return None
+
+    monkeypatch.setattr("builtins.input", lambda prompt='': '3')
+    monkeypatch.setattr(utm, "SitemapFinder", FakeFinder)
+
+    extractor = utm.WebsiteContentExtractor()
+    with pytest.raises(ValueError):
+        extractor.process_website(
+            "https://example.com",
+            separate_files=True,
+            output_path=str(tmp_path),
+        )
+
+
+def test_process_empty_sitemap_prompts_and_crawls(tmp_path: Path, monkeypatch):
+    # Fake SitemapFinder that returns a URL but downloads an empty file
+    class FakeFinder:
+        def __init__(self, base_url: str, timeout: int = 10):
+            self.base_url = base_url
+        def find_sitemap_url(self):
+            return "https://example.com/sitemap.xml"
+        def download_sitemap(self, sitemap_url: str) -> str:
+            p = tmp_path / "empty.xml"
+            p.write_text("", encoding="utf-8")
+            return str(p)
+
+    # Fake WebCrawler that discovers two pages and generates a sitemap
+    class FakeCrawler:
+        def __init__(self, base_url: str, max_depth: int = 3, max_pages: int = 500, timeout: int = 10):
+            self.base_url = base_url
+        def crawl(self):
+            return ["https://example.com/", "https://example.com/docs/"]
+        def generate_sitemap(self, urls):
+            xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" \
+                  + "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n" \
+                  + "\n".join([f"  <url><loc>{u}</loc></url>" for u in urls]) \
+                  + "\n</urlset>"
+            p = tmp_path / "gen.xml"
+            p.write_text(xml, encoding="utf-8")
+            return str(p)
+
+    # Choose to crawl (option 1)
+    monkeypatch.setattr("builtins.input", lambda prompt='': '1')
+    monkeypatch.setattr(utm, "SitemapFinder", FakeFinder)
+    monkeypatch.setattr(utm, "WebCrawler", FakeCrawler)
+    # Avoid network during extraction
+    monkeypatch.setattr(utm.WebsiteContentExtractor, "extract_content", lambda self, url: {
+        "url": url, "title": "t", "content": "c", "error": None
+    })
+
+    extractor = utm.WebsiteContentExtractor()
+    successful, failed = extractor.process_website(
+        "https://example.com",
+        separate_files=True,
+        output_path=str(tmp_path),
+    )
+
+    # Pages should be saved under pages/ based on crawled URLs
+    assert (tmp_path / "pages" / "index.md").exists()
+    assert (tmp_path / "pages" / "docs.md").exists()
+    # And sitemap should be saved/updated
+    assert (tmp_path / "sitemap.xml").exists()
+    assert successful >= 0
+    assert failed >= 0
+
+
+def test_process_empty_sitemap_cancel_raises(tmp_path: Path, monkeypatch):
+    class FakeFinder:
+        def __init__(self, base_url: str, timeout: int = 10):
+            self.base_url = base_url
+        def find_sitemap_url(self):
+            return "https://example.com/sitemap.xml"
+        def download_sitemap(self, sitemap_url: str) -> str:
+            p = tmp_path / "empty.xml"
+            p.write_text("", encoding="utf-8")
+            return str(p)
+
+    monkeypatch.setattr("builtins.input", lambda prompt='': '3')
+    monkeypatch.setattr(utm, "SitemapFinder", FakeFinder)
+    # Avoid any extraction attempt if it were to happen
+    monkeypatch.setattr(utm.WebsiteContentExtractor, "extract_content", lambda self, url: {
+        "url": url, "title": "t", "content": "c", "error": None
+    })
+
+    extractor = utm.WebsiteContentExtractor()
+    with pytest.raises(ValueError):
+        extractor.process_website(
+            "https://example.com",
+            separate_files=True,
+            output_path=str(tmp_path),
+        )
+
+
 def test_parse_sitemap_malformed_returns_empty_list(tmp_path: Path):
     # Create a malformed sitemap file
     p = tmp_path / "bad.xml"

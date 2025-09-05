@@ -583,6 +583,7 @@ class WebsiteContentExtractor:
         sitemap_url = finder.find_sitemap_url()
         sitemap_path = None
         sitemap_source = None
+        sitemap_save_path = None
         
         if sitemap_url:
             # Download existing sitemap
@@ -647,6 +648,57 @@ class WebsiteContentExtractor:
         try:
             # Parse sitemap
             urls = self.parse_sitemap(sitemap_path)
+
+            # Handle edge case: sitemap found/downloaded but contains no URLs
+            if not urls:
+                print(f"\n⚠️ Sitemap contains no URLs for {url}")
+                print("\nWould you like to:")
+                print("1. Crawl the website to discover pages automatically")
+                print("2. Enter a sitemap URL manually")
+                print("3. Cancel")
+
+                choice = input("\nYour choice (1/2/3): ").strip()
+
+                if choice == '1':
+                    # Crawl the website
+                    print(f"\n🕷️ Starting web crawl (depth={crawl_depth}, max_pages={max_crawl_pages})...")
+                    print("This may take a while depending on the website size...")
+
+                    crawler = WebCrawler(url, max_depth=crawl_depth, max_pages=max_crawl_pages)
+                    discovered_urls = crawler.crawl()
+
+                    if discovered_urls:
+                        print(f"✅ Discovered {len(discovered_urls)} pages")
+                        sitemap_path = crawler.generate_sitemap(discovered_urls)
+                        sitemap_source = 'generated'
+                        # Re-save sitemap to permanent location
+                        if sitemap_save_path:
+                            shutil.copy2(sitemap_path, sitemap_save_path)
+                            logger.info(f"Updated sitemap saved to: {sitemap_save_path}")
+                            print(f"📄 Sitemap saved to: {sitemap_save_path}")
+                        # Re-parse sitemap
+                        urls = self.parse_sitemap(sitemap_path)
+                    else:
+                        raise ValueError("No pages could be discovered through crawling")
+
+                elif choice == '2':
+                    # Manual entry
+                    sitemap_url = input("Enter the sitemap URL: ").strip()
+                    if sitemap_url:
+                        sitemap_path = finder.download_sitemap(sitemap_url)
+                        sitemap_source = 'manual'
+                        # Re-save sitemap to permanent location
+                        if sitemap_save_path:
+                            shutil.copy2(sitemap_path, sitemap_save_path)
+                            logger.info(f"Updated sitemap saved to: {sitemap_save_path}")
+                            print(f"📄 Sitemap saved to: {sitemap_save_path}")
+                        # Re-parse sitemap
+                        urls = self.parse_sitemap(sitemap_path)
+                    else:
+                        raise ValueError("No sitemap URL provided")
+
+                else:
+                    raise ValueError("Operation cancelled by user")
             
             if limit:
                 urls = urls[:limit]

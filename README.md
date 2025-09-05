@@ -9,7 +9,7 @@ Extract an entire website to Markdown files using its sitemap (or crawl when no 
 - Automatically discovers a sitemap (robots.txt hints, common paths, or links in HTML)
 - Falls back to crawling with configurable depth and page limit
 - Converts main content to Markdown using `html2text`
-- Saves either per-page files preserving URL structure or a single `.md` file
+- Saves per-page files under a `pages/` subdirectory preserving URL structure, or a single `.md` file
 - Generates a summary `README.md` and saves the sitemap alongside the output
 
 ## Installation (recommended: pipx)
@@ -55,10 +55,12 @@ url-to-markdown https://example.com --single-file
 - `--max-crawl-pages <int>` Max pages to crawl if no sitemap found (default: 500)
 - `--verbose` Enable verbose logging
 
-If no sitemap is found automatically, the CLI will prompt you to:
+If no sitemap is found automatically, or a sitemap is found but contains 0 URLs, the CLI will prompt you to:
 1) crawl the site,
 2) enter a sitemap URL manually, or
 3) cancel.
+
+When you choose to crawl, a sitemap is generated from discovered pages and saved alongside your output. In separate-files mode, page files are saved under `OUTPUT_DIR/pages/`.
 
 ## Requirements
 
