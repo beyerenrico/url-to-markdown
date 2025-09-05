@@ -519,16 +519,16 @@ class WebsiteContentExtractor:
     
     def _clean_markdown(self, markdown: str) -> str:
         """Clean up markdown content."""
-        # Remove excessive blank lines
-        markdown = re.sub(r'\n{3,}', '\n\n', markdown)
-        
-        # Remove trailing whitespace
+        # Remove HTML comments first so we don't reintroduce extra blank lines later
+        markdown = re.sub(r'<!--.*?-->', '', markdown, flags=re.DOTALL)
+
+        # Remove trailing whitespace per line
         lines = [line.rstrip() for line in markdown.split('\n')]
         markdown = '\n'.join(lines)
-        
-        # Remove HTML comments
-        markdown = re.sub(r'<!--.*?-->', '', markdown, flags=re.DOTALL)
-        
+
+        # Collapse excessive blank lines (allow at most a single blank line between blocks)
+        markdown = re.sub(r'\n{3,}', '\n\n', markdown)
+
         return markdown.strip()
     
     def process_website(self, url: str, limit: Optional[int] = None, 
