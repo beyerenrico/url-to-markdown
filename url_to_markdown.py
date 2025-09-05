@@ -420,6 +420,7 @@ class WebsiteContentExtractor:
             root = tree.getroot()
             
             urls = []
+            seen = set()
             
             # Get all url elements
             for elem in root.iter():
@@ -429,7 +430,18 @@ class WebsiteContentExtractor:
                     for child in elem:
                         child_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                         if child_tag == 'loc' and child.text:
-                            urls.append(child.text.strip())
+                            raw = child.text.strip()
+                            # Normalize for trailing-slash duplicates
+                            parsed = urlparse(raw)
+                            path = parsed.path or ''
+                            if path == '' or path == '/':
+                                norm_path = '/'
+                            else:
+                                norm_path = path.rstrip('/')
+                            normalized = f"{parsed.scheme}://{parsed.netloc}{norm_path}"
+                            if normalized not in seen:
+                                urls.append(normalized)
+                                seen.add(normalized)
                             break
             
             logger.info(f"Found {len(urls)} URLs in sitemap")

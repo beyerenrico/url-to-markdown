@@ -55,3 +55,30 @@ def test_parse_sitemap(tmp_path: Path):
         "https://example.com/",
         "https://example.com/about",
     ]
+
+
+def test_parse_sitemap_deduplicates_trailing_slash(tmp_path: Path):
+    sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc>https://example.com</loc></url>
+      <url><loc>https://example.com/</loc></url>
+      <url><loc>https://example.com/docs</loc></url>
+      <url><loc>https://example.com/docs/</loc></url>
+      <url><loc>https://example.com/blog/</loc></url>
+      <url><loc>https://example.com/blog</loc></url>
+    </urlset>
+    """
+    p = tmp_path / "sitemap.xml"
+    p.write_text(sitemap_xml, encoding="utf-8")
+
+    extractor = utm.WebsiteContentExtractor()
+    urls = extractor.parse_sitemap(str(p))
+
+    # Expect normalized canonical forms with duplicates removed:
+    # - root becomes "/" form
+    # - non-root paths drop trailing slash
+    assert urls == [
+        "https://example.com/",
+        "https://example.com/docs",
+        "https://example.com/blog",
+    ]
