@@ -135,3 +135,25 @@ def test_save_to_separate_files_uses_pages_subdir(tmp_path: Path):
     assert (tmp_path / "pages" / "docs.md").exists()
     # With current logic, trailing slash non-root becomes a file named <segment>.md
     assert (tmp_path / "pages" / "blog.md").exists()
+
+
+def test_parse_sitemap_empty_file_returns_empty_list(tmp_path: Path):
+    # Create an empty sitemap file
+    p = tmp_path / "empty.xml"
+    p.write_text("", encoding="utf-8")
+
+    extractor = utm.WebsiteContentExtractor()
+    urls = extractor.parse_sitemap(str(p))
+
+    assert urls == []
+
+
+def test_parse_sitemap_malformed_returns_empty_list(tmp_path: Path):
+    # Create a malformed sitemap file
+    p = tmp_path / "bad.xml"
+    p.write_text("<not-xml>", encoding="utf-8")
+
+    extractor = utm.WebsiteContentExtractor()
+    urls = extractor.parse_sitemap(str(p))
+
+    assert urls == []

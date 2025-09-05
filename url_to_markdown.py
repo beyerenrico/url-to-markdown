@@ -435,6 +435,15 @@ class WebsiteContentExtractor:
         logger.info(f"Parsing sitemap: {sitemap_path}")
         
         try:
+            # Handle empty file quickly
+            try:
+                if not sitemap_path or not os.path.exists(sitemap_path) or os.path.getsize(sitemap_path) == 0:
+                    logger.warning("Sitemap file is empty or missing; returning no URLs")
+                    return []
+            except Exception:
+                # If file checks fail, fall through to attempted parse which will likely error and be handled below
+                pass
+
             tree = ET.parse(sitemap_path)
             root = tree.getroot()
             
@@ -466,9 +475,12 @@ class WebsiteContentExtractor:
             logger.info(f"Found {len(urls)} URLs in sitemap")
             return urls
             
+        except ET.ParseError as e:
+            logger.warning(f"Sitemap XML parse error: {e}; returning no URLs")
+            return []
         except Exception as e:
-            logger.error(f"Error parsing sitemap: {e}")
-            raise
+            logger.warning(f"Error parsing sitemap: {e}; returning no URLs")
+            return []
     
     def extract_content(self, url: str) -> Dict[str, str]:
         """Extract title and article content from a URL."""
