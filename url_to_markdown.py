@@ -744,8 +744,10 @@ class WebsiteContentExtractor:
         """Save each page to a separate Markdown file preserving URL structure."""
         logger.info(f"Saving results to separate files in {output_dir}")
         
-        # Ensure output directory exists
+        # Ensure base and pages directories exist
         os.makedirs(output_dir, exist_ok=True)
+        pages_dir = os.path.join(output_dir, 'pages')
+        os.makedirs(pages_dir, exist_ok=True)
         
         # Track created directories for summary
         created_dirs = set()
@@ -759,7 +761,7 @@ class WebsiteContentExtractor:
                 
                 if not path or path == '':
                     # Home page
-                    file_path = os.path.join(output_dir, 'index.md')
+                    file_path = os.path.join(pages_dir, 'index.md')
                 else:
                     # Split path into directories and filename
                     path_parts = path.split('/')
@@ -775,16 +777,16 @@ class WebsiteContentExtractor:
                         
                         # Create directory structure
                         if len(path_parts) > 1:
-                            dir_path = os.path.join(output_dir, *path_parts[:-1])
+                            dir_path = os.path.join(pages_dir, *path_parts[:-1])
                         else:
-                            dir_path = output_dir
+                            dir_path = pages_dir
                     else:
                         # Treat entire path as directory structure
-                        dir_path = os.path.join(output_dir, *path_parts)
+                        dir_path = os.path.join(pages_dir, *path_parts)
                         filename = 'index.md'
                     
                     # Create directory if needed
-                    if dir_path != output_dir:
+                    if dir_path != pages_dir:
                         os.makedirs(dir_path, exist_ok=True)
                         created_dirs.add(dir_path)
                     

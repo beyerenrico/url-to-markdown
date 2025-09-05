@@ -103,3 +103,35 @@ def test_crawler_extract_links_normalizes_and_dedupes():
         "https://example.com/docs",
         "https://example.com/blog",
     }
+
+
+def test_save_to_separate_files_uses_pages_subdir(tmp_path: Path):
+    extractor = utm.WebsiteContentExtractor()
+    results = [
+        {
+            "url": "https://example.com/",
+            "title": "Home",
+            "content": "Home content",
+            "error": None,
+        },
+        {
+            "url": "https://example.com/docs",
+            "title": "Docs",
+            "content": "Docs content",
+            "error": None,
+        },
+        {
+            "url": "https://example.com/blog/",
+            "title": "Blog",
+            "content": "Blog content",
+            "error": None,
+        },
+    ]
+
+    extractor._save_to_separate_files(results, str(tmp_path))
+
+    # Ensure files are created under the pages/ subdirectory
+    assert (tmp_path / "pages" / "index.md").exists()
+    assert (tmp_path / "pages" / "docs.md").exists()
+    # With current logic, trailing slash non-root becomes a file named <segment>.md
+    assert (tmp_path / "pages" / "blog.md").exists()
