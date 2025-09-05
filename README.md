@@ -1,5 +1,7 @@
 # URL to Markdown
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Extract an entire website to Markdown files using its sitemap (or crawl when no sitemap is available). Saves either a directory tree of Markdown files or a single consolidated Markdown document.
 
 ## Features
@@ -80,3 +82,7 @@ python url_to_markdown.py https://example.com
 # Or after editable install:
 url-to-markdown -h
 ```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
