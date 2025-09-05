@@ -82,3 +82,24 @@ def test_parse_sitemap_deduplicates_trailing_slash(tmp_path: Path):
         "https://example.com/docs",
         "https://example.com/blog",
     ]
+
+
+def test_crawler_extract_links_normalizes_and_dedupes():
+    html = """
+    <a href="https://example.com">root no slash</a>
+    <a href="https://example.com/">root with slash</a>
+    <a href="/docs">docs no slash</a>
+    <a href="/docs/">docs with slash</a>
+    <a href="/blog/">blog with slash</a>
+    <a href="/blog#frag">blog with fragment</a>
+    <a href="https://other.com/">external domain</a>
+    """
+
+    crawler = utm.WebCrawler("https://example.com")
+    links = crawler._extract_links("https://example.com/", html)
+
+    assert set(links) == {
+        "https://example.com/",
+        "https://example.com/docs",
+        "https://example.com/blog",
+    }

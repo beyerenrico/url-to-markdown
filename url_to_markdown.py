@@ -127,6 +127,23 @@ class WebCrawler:
         
         return True
     
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL to canonical form for deduplication.
+        - Keep scheme and netloc
+        - Root path becomes '/'
+        - Non-root paths drop trailing slash
+        - Remove fragment and query
+        """
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return url
+        path = parsed.path or ''
+        if path == '' or path == '/':
+            norm_path = '/'
+        else:
+            norm_path = path.rstrip('/')
+        return f"{parsed.scheme}://{parsed.netloc}{norm_path}"
+    
     def _extract_links(self, url: str, html: str) -> List[str]:
         """Extract all links from HTML page."""
         links = []
@@ -140,8 +157,9 @@ class WebCrawler:
                 # Remove fragment and query parameters for cleaner URLs
                 parsed = urlparse(absolute_url)
                 clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                if self._is_valid_url(clean_url):
-                    links.append(clean_url)
+                normalized = self._normalize_url(clean_url)
+                if self._is_valid_url(normalized):
+                    links.append(normalized)
         
         return list(set(links))  # Remove duplicates
     
@@ -151,8 +169,9 @@ class WebCrawler:
         logger.info(f"Max depth: {self.max_depth}, Max pages: {self.max_pages}")
         
         # Queue: (url, depth)
-        queue = [(self.base_url, 0)]
-        self.visited_urls.add(self.base_url)
+        start_url = self._normalize_url(self.base_url)
+        queue = [(start_url, 0)]
+        self.visited_urls.add(start_url)
         
         with tqdm(total=self.max_pages, desc="Crawling pages") as pbar:
             while queue and len(self.discovered_urls) < self.max_pages:
