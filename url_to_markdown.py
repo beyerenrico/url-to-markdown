@@ -116,10 +116,15 @@ class WebCrawler:
                 return False
         
         # Skip common non-content paths
-        skip_paths = ['/wp-admin', '/admin', '/login', '/logout', '/api/', '/feed/', '/.well-known']
-        for skip in skip_paths:
-            if skip in path_lower:
+        # Use prefix matching to avoid accidentally skipping nested docs like '/docs/api/...'
+        skip_prefixes = ['/wp-admin', '/admin', '/login', '/logout', '/feed/', '/.well-known']
+        for prefix in skip_prefixes:
+            if path_lower.startswith(prefix):
                 return False
+
+        # Special-case API root to avoid skipping '/docs/api/...'
+        if path_lower == '/api' or path_lower.startswith('/api/'):
+            return False
         
         # Check robots.txt
         if not self._is_allowed(url):
@@ -576,21 +581,37 @@ class WebsiteContentExtractor:
     
     def process_website(self, url: str, limit: Optional[int] = None, 
                        separate_files: bool = False, output_path: str = None,
-                       crawl_depth: int = 3, max_crawl_pages: int = 500) -> Tuple[int, int]:
+                       crawl_depth: int = 3, max_crawl_pages: int = 500,
+                       force_crawl: bool = False, augment_crawl: bool = False) -> Tuple[int, int]:
         """Process entire website: find sitemap, extract content."""
-        # Find and download sitemap
+        # Find and download sitemap (unless force_crawl)
         finder = SitemapFinder(url)
-        sitemap_url = finder.find_sitemap_url()
+        sitemap_url = None
         sitemap_path = None
         sitemap_source = None
         sitemap_save_path = None
+
+        if force_crawl:
+            # Skip sitemap discovery entirely
+            print(f"\n🕷️ Force crawling enabled (depth={crawl_depth}, max_pages={max_crawl_pages})...")
+            crawler = WebCrawler(url, max_depth=crawl_depth, max_pages=max_crawl_pages)
+            discovered_urls = crawler.crawl()
+            if not discovered_urls:
+                raise ValueError("No pages could be discovered through crawling")
+            print(f"✅ Discovered {len(discovered_urls)} pages")
+            sitemap_path = crawler.generate_sitemap(discovered_urls)
+            sitemap_source = 'generated'
+        else:
+            sitemap_url = finder.find_sitemap_url()
+            sitemap_path = None
+            sitemap_source = None
         
-        if sitemap_url:
+        if not force_crawl and sitemap_url:
             # Download existing sitemap
             sitemap_path = finder.download_sitemap(sitemap_url)
             sitemap_source = 'found'
             print(f"✅ Found sitemap at: {sitemap_url}")
-        else:
+        elif not force_crawl:
             # No sitemap found - offer to crawl
             print(f"\n⚠️ No sitemap found for {url}")
             print("\nWould you like to:")
@@ -640,9 +661,15 @@ class WebsiteContentExtractor:
                 base_name = os.path.splitext(os.path.basename(output_path))[0] if output_path else 'website'
                 sitemap_save_path = os.path.join(output_dir, f'{base_name}_sitemap.xml')
             
-            # Copy sitemap to permanent location
-            shutil.copy2(sitemap_path, sitemap_save_path)
-            logger.info(f"Saved sitemap to: {sitemap_save_path}")
+            # Copy sitemap to permanent location (avoid copying onto itself)
+            try:
+                if os.path.abspath(sitemap_path) != os.path.abspath(sitemap_save_path):
+                    shutil.copy2(sitemap_path, sitemap_save_path)
+                    logger.info(f"Saved sitemap to: {sitemap_save_path}")
+                else:
+                    logger.info(f"Sitemap already at target location: {sitemap_save_path}")
+            except Exception as e:
+                logger.warning(f"Could not copy sitemap to {sitemap_save_path}: {e}")
             print(f"📄 Sitemap saved to: {sitemap_save_path}")
         
         try:
@@ -673,8 +700,14 @@ class WebsiteContentExtractor:
                         sitemap_source = 'generated'
                         # Re-save sitemap to permanent location
                         if sitemap_save_path:
-                            shutil.copy2(sitemap_path, sitemap_save_path)
-                            logger.info(f"Updated sitemap saved to: {sitemap_save_path}")
+                            try:
+                                if os.path.abspath(sitemap_path) != os.path.abspath(sitemap_save_path):
+                                    shutil.copy2(sitemap_path, sitemap_save_path)
+                                    logger.info(f"Updated sitemap saved to: {sitemap_save_path}")
+                                else:
+                                    logger.info(f"Sitemap already at target location: {sitemap_save_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not copy sitemap to {sitemap_save_path}: {e}")
                             print(f"📄 Sitemap saved to: {sitemap_save_path}")
                         # Re-parse sitemap
                         urls = self.parse_sitemap(sitemap_path)
@@ -689,8 +722,14 @@ class WebsiteContentExtractor:
                         sitemap_source = 'manual'
                         # Re-save sitemap to permanent location
                         if sitemap_save_path:
-                            shutil.copy2(sitemap_path, sitemap_save_path)
-                            logger.info(f"Updated sitemap saved to: {sitemap_save_path}")
+                            try:
+                                if os.path.abspath(sitemap_path) != os.path.abspath(sitemap_save_path):
+                                    shutil.copy2(sitemap_path, sitemap_save_path)
+                                    logger.info(f"Updated sitemap saved to: {sitemap_save_path}")
+                                else:
+                                    logger.info(f"Sitemap already at target location: {sitemap_save_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not copy sitemap to {sitemap_save_path}: {e}")
                             print(f"📄 Sitemap saved to: {sitemap_save_path}")
                         # Re-parse sitemap
                         urls = self.parse_sitemap(sitemap_path)
@@ -699,6 +738,34 @@ class WebsiteContentExtractor:
 
                 else:
                     raise ValueError("Operation cancelled by user")
+
+            # Optionally augment sitemap with crawler-discovered URLs
+            if augment_crawl:
+                print(f"\n🕷️ Augmenting URLs via crawl (depth={crawl_depth}, max_pages={max_crawl_pages})...")
+                crawler = WebCrawler(url, max_depth=crawl_depth, max_pages=max_crawl_pages)
+                discovered_urls = crawler.crawl()
+                if discovered_urls:
+                    # Merge with existing urls, preserving order
+                    seen = set(urls)
+                    for u in discovered_urls:
+                        if u not in seen:
+                            urls.append(u)
+                            seen.add(u)
+                    # Update sitemap file on disk to reflect merged list
+                    combined_xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    combined_xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+                    for u in urls:
+                        combined_xml += '  <url>\n'
+                        combined_xml += f'    <loc>{u}</loc>\n'
+                        combined_xml += f'    <lastmod>{datetime.now().strftime("%Y-%m-%d")}</lastmod>\n'
+                        combined_xml += '    <changefreq>weekly</changefreq>\n'
+                        combined_xml += '    <priority>0.5</priority>\n'
+                        combined_xml += '  </url>\n'
+                    combined_xml += '</urlset>'
+                    if sitemap_save_path:
+                        with open(sitemap_save_path, 'w', encoding='utf-8') as f:
+                            f.write(combined_xml)
+                        print(f"📄 Sitemap updated to include crawled URLs: {sitemap_save_path}")
             
             if limit:
                 urls = urls[:limit]
@@ -734,7 +801,11 @@ class WebsiteContentExtractor:
             # Clean up temp file
             if sitemap_path and os.path.exists(sitemap_path):
                 try:
-                    os.unlink(sitemap_path)
+                    # Do not delete if this is the same file as the saved sitemap
+                    if sitemap_save_path and os.path.abspath(sitemap_path) == os.path.abspath(sitemap_save_path):
+                        pass
+                    else:
+                        os.unlink(sitemap_path)
                 except:
                     pass
     
@@ -999,6 +1070,16 @@ def main():
         help='Maximum pages to crawl if no sitemap found (default: 500)'
     )
     parser.add_argument(
+        '--force-crawl',
+        action='store_true',
+        help='Skip sitemap discovery and crawl the site directly'
+    )
+    parser.add_argument(
+        '--augment-crawl',
+        action='store_true',
+        help='After parsing sitemap, crawl and merge any additional URLs that were not in the sitemap'
+    )
+    parser.add_argument(
         '--verbose', 
         action='store_true',
         help='Enable verbose logging'
@@ -1036,7 +1117,9 @@ def main():
             separate_files=separate_files,
             output_path=output_path,
             crawl_depth=args.crawl_depth,
-            max_crawl_pages=args.max_crawl_pages
+            max_crawl_pages=args.max_crawl_pages,
+            force_crawl=args.force_crawl,
+            augment_crawl=args.augment_crawl
         )
         
         # Print results

@@ -148,6 +148,69 @@ def test_parse_sitemap_empty_file_returns_empty_list(tmp_path: Path):
     assert urls == []
 
 
+def test_crawler_api_rules_allow_docs_api_and_skip_root_api():
+    crawler = utm.WebCrawler("https://shopify.dev")
+
+    # Should allow docs API pages
+    assert crawler._is_valid_url("https://shopify.dev/docs/api/admin-graphql") is True
+
+    # Should skip API root paths
+    assert crawler._is_valid_url("https://shopify.dev/api/") is False
+    assert crawler._is_valid_url("https://shopify.dev/api") is False
+
+
+def test_augment_crawl_merges_urls_and_updates_sitemap(tmp_path: Path, monkeypatch):
+    # Minimal sitemap with a single page
+    base_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc>https://shopify.dev/docs/api/admin-graphql</loc></url>
+    </urlset>
+    """
+
+    class FakeFinder:
+        def __init__(self, base_url: str, timeout: int = 10):
+            self.base_url = base_url
+        def find_sitemap_url(self):
+            return "https://shopify.dev/sitemap.xml"
+        def download_sitemap(self, sitemap_url: str) -> str:
+            p = tmp_path / "sitemap.xml"
+            p.write_text(base_xml, encoding="utf-8")
+            return str(p)
+
+    class FakeCrawler:
+        def __init__(self, base_url: str, max_depth: int = 3, max_pages: int = 500, timeout: int = 10):
+            self.base_url = base_url
+        def crawl(self):
+            return [
+                "https://shopify.dev/docs/api/admin-graphql",  # duplicate in sitemap
+                "https://shopify.dev/docs/api/admin-graphql/reference",  # new URL
+            ]
+        def generate_sitemap(self, urls):
+            raise AssertionError("generate_sitemap should not be called in augment path")
+
+    monkeypatch.setattr(utm, "SitemapFinder", FakeFinder)
+    monkeypatch.setattr(utm, "WebCrawler", FakeCrawler)
+    # Avoid network during extraction
+    monkeypatch.setattr(utm.WebsiteContentExtractor, "extract_content", lambda self, url: {
+        "url": url, "title": "t", "content": "c", "error": None
+    })
+
+    extractor = utm.WebsiteContentExtractor()
+    successful, failed = extractor.process_website(
+        "https://shopify.dev",
+        separate_files=True,
+        output_path=str(tmp_path),
+        augment_crawl=True,
+    )
+
+    # Both original and newly discovered page should be saved under pages/
+    assert (tmp_path / "pages" / "docs" / "api" / "admin-graphql.md").exists()
+    assert (tmp_path / "pages" / "docs" / "api" / "admin-graphql" / "reference.md").exists()
+    # Saved sitemap should include the reference URL
+    saved_xml = (tmp_path / "sitemap.xml").read_text(encoding="utf-8")
+    assert "https://shopify.dev/docs/api/admin-graphql/reference" in saved_xml
+
+
 def test_process_no_sitemap_prompts_and_crawls(tmp_path: Path, monkeypatch):
     # Fake SitemapFinder that returns None (no sitemap found)
     class FakeFinder:
