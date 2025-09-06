@@ -211,6 +211,67 @@ def test_augment_crawl_merges_urls_and_updates_sitemap(tmp_path: Path, monkeypat
     assert "https://shopify.dev/docs/api/admin-graphql/reference" in saved_xml
 
 
+def test_sitemap_index_with_gzip_child_supported(tmp_path: Path):
+    # Prepare a sitemap index XML that references a gzipped child sitemap
+    index_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <sitemap>
+        <loc>https://shopify.dev/sitemap_standard.xml.gz</loc>
+      </sitemap>
+    </sitemapindex>
+    """
+
+    child_sitemap_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc>https://shopify.dev/docs/api/admin-graphql</loc></url>
+      <url><loc>https://shopify.dev/docs/apps</loc></url>
+    </urlset>
+    """
+
+    import gzip as _gzip
+
+    # Fake responses
+    class FakeResponse:
+        def __init__(self, text: str = "", content: bytes = b"", headers=None, status_code=200):
+            self._text = text
+            self.content = content
+            self.headers = headers or {}
+            self.status_code = status_code
+        @property
+        def text(self):
+            return self._text
+        def raise_for_status(self):
+            if int(self.status_code) >= 400:
+                raise AssertionError(f"HTTP {self.status_code}")
+
+    class FakeSession:
+        def get(self, url, timeout=10, allow_redirects=True):
+            if url.endswith("sitemap_index.xml") or url.endswith("/index.xml") or url.endswith("/sitemap.xml") or url == "https://shopify.dev/sitemap.xml":
+                return FakeResponse(text=index_xml, headers={"content-type": "application/xml"})
+            if url.endswith("sitemap_standard.xml.gz"):
+                gz = _gzip.compress(child_sitemap_xml.encode("utf-8"))
+                return FakeResponse(content=gz, headers={"content-type": "application/gzip"})
+            raise AssertionError(f"Unexpected URL in FakeSession.get: {url}")
+
+        def head(self, url, timeout=10, allow_redirects=True):
+            # Not used in this test
+            return FakeResponse(status_code=200)
+
+    finder = utm.SitemapFinder("https://shopify.dev")
+    finder.session = FakeSession()
+
+    # Directly call download_sitemap on the index URL
+    combined_path = finder.download_sitemap("https://shopify.dev/sitemap.xml")
+
+    extractor = utm.WebsiteContentExtractor()
+    urls = extractor.parse_sitemap(combined_path)
+
+    assert urls == [
+        "https://shopify.dev/docs/api/admin-graphql",
+        "https://shopify.dev/docs/apps",
+    ]
+
+
 def test_process_no_sitemap_prompts_and_crawls(tmp_path: Path, monkeypatch):
     # Fake SitemapFinder that returns None (no sitemap found)
     class FakeFinder:

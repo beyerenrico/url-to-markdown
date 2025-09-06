@@ -22,6 +22,7 @@ import os
 import shutil
 from urllib.parse import urljoin, urlparse
 import tempfile
+import gzip
 
 # Third-party imports (need to be installed)
 try:
@@ -275,12 +276,26 @@ class SitemapFinder:
         for path in common_paths:
             url = urljoin(self.base_url, path)
             try:
-                response = self.session.head(url, timeout=self.timeout, allow_redirects=True)
+                # Some servers block HEAD; try HEAD but always fall back to GET
+                try:
+                    self.session.head(url, timeout=self.timeout, allow_redirects=True)
+                except requests.RequestException:
+                    pass
+
+                # Verify via GET (handle gzipped sitemaps as well)
+                response = self.session.get(url, timeout=self.timeout, allow_redirects=True)
                 if response.status_code == 200:
-                    # Verify it's actually XML
-                    response = self.session.get(url, timeout=self.timeout)
-                    if 'xml' in response.headers.get('content-type', '').lower() or \
-                       response.text.strip().startswith('<?xml'):
+                    content_type = response.headers.get('content-type', '').lower()
+                    xml_text = None
+                    if url.endswith('.gz') or 'gzip' in content_type:
+                        try:
+                            xml_text = gzip.decompress(response.content).decode('utf-8', errors='replace')
+                        except Exception:
+                            xml_text = None
+                    if xml_text is None:
+                        xml_text = response.text
+                    sample = xml_text.strip().lower()[:2000]
+                    if ('xml' in content_type) or sample.startswith('<?xml') or ('<sitemap' in sample) or ('<sitemapindex' in sample):
                         logger.info(f"Found sitemap at: {url}")
                         return url
             except requests.RequestException:
@@ -343,14 +358,25 @@ class SitemapFinder:
         response = self.session.get(sitemap_url, timeout=self.timeout)
         response.raise_for_status()
         
+        # Decode XML text (support .xml.gz)
+        content_type = response.headers.get('content-type', '').lower()
+        if sitemap_url.endswith('.gz') or 'gzip' in content_type:
+            try:
+                xml_text = gzip.decompress(response.content).decode('utf-8', errors='replace')
+            except Exception as e:
+                logger.warning(f"Failed to decompress gzip sitemap: {e}")
+                xml_text = ''
+        else:
+            xml_text = response.text
+
         # Check if it's a sitemap index
-        if 'sitemapindex' in response.text:
+        if 'sitemapindex' in xml_text.lower():
             logger.info("Found sitemap index, processing multiple sitemaps...")
-            return self._process_sitemap_index(response.text, sitemap_url)
+            return self._process_sitemap_index(xml_text, sitemap_url)
         
         # Save to temporary file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as f:
-            f.write(response.text)
+            f.write(xml_text)
             temp_path = f.name
         
         logger.info(f"Sitemap downloaded to: {temp_path}")
@@ -377,8 +403,17 @@ class SitemapFinder:
             try:
                 response = self.session.get(sitemap_url, timeout=self.timeout)
                 if response.status_code == 200:
+                    content_type = response.headers.get('content-type', '').lower()
+                    if sitemap_url.endswith('.gz') or 'gzip' in content_type:
+                        try:
+                            xml_text = gzip.decompress(response.content).decode('utf-8', errors='replace')
+                        except Exception as e:
+                            logger.warning(f"Failed to decompress gzip sitemap {sitemap_url}: {e}")
+                            xml_text = ''
+                    else:
+                        xml_text = response.text
                     # Parse this sitemap
-                    sitemap_root = ET.fromstring(response.text)
+                    sitemap_root = ET.fromstring(xml_text)
                     for elem in sitemap_root.iter():
                         tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
                         if tag == 'url':
